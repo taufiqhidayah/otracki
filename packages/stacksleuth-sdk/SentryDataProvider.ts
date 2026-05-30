@@ -78,7 +78,11 @@ const scoreEvent = (event: SentryEventListItem, input: { issue: string; context?
     if (hay.includes(token)) score += 1;
   }
 
-  if (route && hay.includes(route)) score += 5;
+  if (route) {
+    if (hay.includes(route)) score += 5;
+    const eventRoute = getTagValue(event, "page.route")?.toLowerCase();
+    if (eventRoute && eventRoute === route) score += 10;
+  }
 
   if (userHint) {
     const tags = event.tags?.map((t) => `${t.key}:${t.value}`.toLowerCase()).join("\n") ?? "";
@@ -305,13 +309,22 @@ export class SentryDataProvider implements DataProvider {
     const { value, stack } = exception ? parseExceptionStack(exception.data) : { value: undefined, stack: undefined };
     const level = exception ? ("error" as const) : toLogLevel(getTagValue(best, "level"), "info");
 
-    const msg =
+    const msgBase =
       value ??
       safeString(best.title) ??
       safeString(best.message) ??
       "Event ditemukan di Sentry, tapi tidak ada detail exception yang bisa diparse.";
 
     const eventId = safeString(best.eventID) ?? safeString(best.id);
+    const routeTag = getTagValue(best, "page.route");
+    const msg = [
+      msgBase,
+      routeTag ? `route=${routeTag}` : undefined,
+      `level=${level}`,
+      `service=fe`
+    ]
+      .filter((v): v is string => Boolean(v))
+      .join(" ");
 
     return [
       {
@@ -339,7 +352,7 @@ export class SentryDataProvider implements DataProvider {
     const { value } = exception ? parseExceptionStack(exception.data) : { value: undefined };
     const level = exception ? ("error" as const) : toLogLevel(getTagValue(best, "level"), "info");
 
-    const msg =
+    const msgBase =
       value ??
       safeString(best.title) ??
       safeString(best.message) ??
@@ -347,6 +360,15 @@ export class SentryDataProvider implements DataProvider {
 
     const eventId = safeString(best.eventID) ?? safeString(best.id);
     const requestId = getTagValue(best, "request_id") ?? getTagValue(best, "requestId");
+    const routeTag = getTagValue(best, "page.route");
+    const msg = [
+      msgBase,
+      routeTag ? `route=${routeTag}` : undefined,
+      `level=${level}`,
+      `service=be`
+    ]
+      .filter((v): v is string => Boolean(v))
+      .join(" ");
 
     return [
       {

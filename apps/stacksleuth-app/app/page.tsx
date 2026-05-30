@@ -188,8 +188,8 @@ export default function Page() {
 
               <div className="grid gap-2">
                 <label className="text-xs font-medium text-ink-200">Time window</label>
-                <div className="flex flex-wrap gap-2">
-                  {[5, 15, 60].map((m) => {
+                <div className="flex flex-wrap items-center gap-2">
+                  {[5, 15, 60, 120].map((m) => {
                     const selected = m === timeWindowMinutes;
                     return (
                       <button
@@ -207,8 +207,28 @@ export default function Page() {
                       </button>
                     );
                   })}
+                  <div className="flex items-center gap-2 rounded-full bg-black/30 px-3 py-2 ring-1 ring-white/10">
+                    <span className="text-xs text-ink-400">Custom</span>
+                    <input
+                      value={timeWindowMinutes}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const parsed = Number.parseInt(raw, 10);
+                        if (!Number.isFinite(parsed)) return;
+                        const clamped = Math.max(1, Math.min(120, parsed));
+                        setTimeWindowMinutes(clamped);
+                      }}
+                      inputMode="numeric"
+                      type="number"
+                      min={1}
+                      max={120}
+                      step={1}
+                      className="w-16 bg-transparent text-right text-xs text-ink-100 outline-none"
+                    />
+                    <span className="text-xs text-ink-400">m</span>
+                  </div>
                 </div>
-                <div className="text-[11px] text-ink-400">Default 5 menit terakhir.</div>
+                <div className="text-[11px] text-ink-400">Bisa 1–120 menit. Kalau event belum ketemu, naikin window.</div>
               </div>
 
               <div className="grid gap-2">
