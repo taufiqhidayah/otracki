@@ -296,7 +296,7 @@ export class SentryDataProvider implements DataProvider {
         {
           timestamp: new Date().toISOString(),
           level: "warn",
-          message: "Tidak menemukan event di Sentry untuk time window yang dipilih. Coba perkecil time window atau isi Debug ID."
+          message: "Tidak menemukan event FE di Sentry untuk time window yang dipilih. Coba perbesar time window atau isi Debug ID."
         }
       ];
     }
@@ -330,7 +330,7 @@ export class SentryDataProvider implements DataProvider {
         {
           timestamp: new Date().toISOString(),
           level: "warn",
-          message: "Tidak menemukan event BE di Sentry untuk time window yang dipilih."
+          message: "Tidak menemukan event BE di Sentry untuk time window yang dipilih. Coba perbesar time window atau isi Debug ID."
         }
       ];
     }
