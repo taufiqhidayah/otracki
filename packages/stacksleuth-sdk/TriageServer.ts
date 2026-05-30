@@ -128,7 +128,10 @@ export const createTriageServer = () => {
 };
 
 export const startServer = (options?: { port?: number }) => {
-  const port = options?.port ?? 4000;
+  const envPortRaw = process.env.PORT;
+  const envPort =
+    typeof envPortRaw === "string" && envPortRaw.trim().length > 0 ? Number.parseInt(envPortRaw, 10) : Number.NaN;
+  const port = options?.port ?? (Number.isFinite(envPort) ? envPort : 4000);
   const app = createTriageServer();
 
   app.listen(port, () => {
