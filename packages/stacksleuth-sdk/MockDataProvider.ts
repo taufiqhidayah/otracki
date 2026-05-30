@@ -176,4 +176,13 @@ export class MockDataProvider implements DataProvider {
 
     return null;
   }
+
+  async getNetworkRecords(input: {
+    issue: string;
+    environment?: EnvironmentName;
+    context?: TriageContextInput;
+  }): Promise<NetworkRecord[]> {
+    const record = await this.getNetworkRecord(input);
+    return record ? [record] : [];
+  }
 }

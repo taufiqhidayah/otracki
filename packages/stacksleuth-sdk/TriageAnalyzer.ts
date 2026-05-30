@@ -14,8 +14,19 @@ import type {
 
 const isoNow = () => new Date().toISOString();
 
-const findFirstError = (logs: Array<{ level: string; message: string }>) =>
-  logs.find((l) => l.level === "error" || l.level === "warn");
+const isPlaceholderLog = (message: string) =>
+  message.startsWith("No FE events found") || message.startsWith("No BE events found");
+
+const networkSummary = (network: NetworkRecord) =>
+  `${network.method} ${network.url} -> ${network.status || "NO_STATUS"}${network.error ? ` (${network.error})` : ""}`;
+
+const networkDetail = (network: NetworkRecord) =>
+  [
+    network.requestBodyRedacted ? `request=${network.requestBodyRedacted}` : undefined,
+    network.responseBody ? `response=${network.responseBody}` : undefined
+  ]
+    .filter((v): v is string => Boolean(v))
+    .join("\n");
 
 const hasFeExceptionSignal = (feLogs: FeLogEntry[]) => {
   if (feLogs.some((l) => l.level === "error")) return true;
@@ -73,12 +84,16 @@ export class TriageAnalyzer {
       ...(input.context?.userHint ? { userHint: input.context.userHint } : {}),
       ...(typeof input.context?.timeWindowMinutes === "number"
         ? { timeWindowMinutes: input.context.timeWindowMinutes }
-        : {})
+        : {}),
+      ...(input.context?.service ? { service: input.context.service } : {}),
+      ...(input.context?.level ? { level: input.context.level } : {})
     };
     const hasContext =
       Boolean(context.route) ||
       Boolean(context.debugId) ||
       Boolean(context.userHint) ||
+      Boolean(context.service) ||
+      Boolean(context.level) ||
       typeof context.timeWindowMinutes === "number";
 
     const providerInputBase = {
@@ -91,49 +106,48 @@ export class TriageAnalyzer {
 
     const feLogs = await this.provider.getFeLogs(providerInputBase);
     const beLogs = await this.provider.getBeLogs(providerInputBase);
-    const network = await this.provider.getNetworkRecord(providerInputBase);
+    const networkRecords = await this.provider.getNetworkRecords(providerInputBase);
+    const network = networkRecords[0] ?? null;
 
     const evidence: EvidenceItem[] = [];
 
-    const fePicked = findFirstError(feLogs) ?? feLogs[0];
-    if (fePicked) {
-      const detail = fePicked.level === "error" ? feLogs.find((l) => l.message === fePicked.message)?.stack : undefined;
-      evidence.push({
-        source: "FE_LOG",
-        summary: fePicked.message,
-        ...(detail ? { detail } : {})
-      });
+    const feEntries = feLogs.filter((log) => !isPlaceholderLog(log.message));
+    if (feEntries.length === 0 && feLogs[0]) {
+      evidence.push({ source: "FE_LOG", summary: feLogs[0].message });
+    } else {
+      for (const log of feEntries) {
+        evidence.push({
+          source: "FE_LOG",
+          summary: log.message,
+          ...(log.stack ? { detail: log.stack } : {})
+        });
+      }
     }
 
-    const bePicked = findFirstError(beLogs) ?? beLogs[0];
-    if (bePicked) {
-      evidence.push({
-        source: "BE_LOG",
-        summary: bePicked.message
-      });
+    const beEntries = beLogs.filter((log) => !isPlaceholderLog(log.message));
+    if (beEntries.length === 0 && beLogs[0]) {
+      evidence.push({ source: "BE_LOG", summary: beLogs[0].message });
+    } else {
+      for (const log of beEntries) {
+        evidence.push({ source: "BE_LOG", summary: log.message });
+      }
     }
 
-    if (network) {
-      const detail = [
-        network.requestBodyRedacted ? `request=${network.requestBodyRedacted}` : undefined,
-        network.responseBody ? `response=${network.responseBody}` : undefined
-      ]
-        .filter((v): v is string => Boolean(v))
-        .join("\n");
-
+    for (const record of networkRecords) {
+      const detail = networkDetail(record);
       evidence.push({
         source: "NETWORK",
-        summary: `${network.method} ${network.url} -> ${network.status || "NO_STATUS"}${network.error ? ` (${network.error})` : ""}`,
+        summary: networkSummary(record),
         ...(detail ? { detail } : {})
       });
     }
 
-    const resolution = decideOwner({ issue, feLogs, beLogs, network });
+    const resolution = decideOwner({ issue, feLogs, beLogs, network: networkRecords.find((r) => r.status >= 400) ?? network });
     const finalConfidence =
       resolution.owner === "UNKNOWN" ? "low" : downgradeConfidence(resolution.confidence, inputQuality);
     const finalNextStep =
       inputQuality === "poor"
-        ? `${resolution.nextStep} Tambahkan Debug ID/Trace ID atau rentang waktu kejadian agar korelasi log lebih presisi.`
+        ? `${resolution.nextStep} Add a specific event from preview or widen the time window for better log correlation.`
         : resolution.nextStep;
 
     return {
@@ -166,8 +180,8 @@ const decideOwner = (input: {
     return {
       owner: "FE",
       confidence: "high",
-      headline: `Issue di FE — ada error runtime/validation saat submit. BE sukses (200).`,
-      nextStep: `Hubungi FE team. Sertakan error headline dan payload yang relevan (redact PII).`
+      headline: `FE issue — runtime/validation error on submit. BE returned 200.`,
+      nextStep: `Escalate to the FE team. Include the error headline and relevant payload (redact PII).`
     };
   }
 
@@ -175,8 +189,8 @@ const decideOwner = (input: {
     return {
       owner: "INFRA",
       confidence: "high",
-      headline: `Issue jaringan/gateway — request tidak mendapat status (error: ${network.error}).`,
-      nextStep: `Hubungi infra/gateway team. Sertakan timestamp dan environment; pastikan request bisa sampai service.`
+      headline: `Network/gateway issue — request got no status (error: ${network.error}).`,
+      nextStep: `Escalate to infra/gateway. Include timestamp and environment; confirm the request reaches the service.`
     };
   }
 
@@ -185,11 +199,11 @@ const decideOwner = (input: {
       owner: beSignal ? "BE" : "INFRA",
       confidence: beSignal ? "high" : "medium",
       headline: beSignal
-        ? `Issue di BE — server mengembalikan ${network.status}.`
-        : `Kemungkinan issue infra/BE — server mengembalikan ${network.status} tapi log BE tidak jelas.`,
+        ? `BE issue — server returned ${network.status}.`
+        : `Likely infra/BE issue — server returned ${network.status} but BE logs are unclear.`,
       nextStep: beSignal
-        ? `Hubungi BE team. Sertakan endpoint, status, dan ringkasan error log.`
-        : `Mulai dari infra/gateway. Kalau ada request-id, korelasikan ke log BE.`
+        ? `Escalate to the BE team. Include endpoint, status, and error log summary.`
+        : `Start with infra/gateway. If you have a request-id, correlate to BE logs.`
     };
   }
 
@@ -197,8 +211,8 @@ const decideOwner = (input: {
     return {
       owner: "FE",
       confidence: "medium",
-      headline: `Kemungkinan issue payload/kontrak — server mengembalikan ${network.status}.`,
-      nextStep: `Cek payload yang dikirim FE (field wajib, nullish/empty). Kalau error message menyebut validasi, arahkan ke FE dulu.`
+      headline: `Likely payload/contract issue — server returned ${network.status}.`,
+      nextStep: `Check the FE payload (required fields, nullish/empty). If the error mentions validation, route to FE first.`
     };
   }
 
@@ -206,8 +220,8 @@ const decideOwner = (input: {
     return {
       owner: "FE",
       confidence: "medium",
-      headline: `Issue di FE — ada sinyal error, tapi tidak ada network record yang terdeteksi.`,
-      nextStep: `Cek apakah klik memicu request (DevTools Network). Kalau tidak ada request, fokus ke handler/validation FE.`
+      headline: `FE issue — error signal detected, but no network record found.`,
+      nextStep: `Check if the click triggers a request (DevTools Network). If none, focus on FE handler/validation.`
     };
   }
 
@@ -215,15 +229,15 @@ const decideOwner = (input: {
     return {
       owner: "BE",
       confidence: "medium",
-      headline: `Issue di BE — ada sinyal error di log backend.`,
-      nextStep: `Hubungi BE team dan sertakan ringkasan log serta waktu kejadian.`
+      headline: `BE issue — error signal in backend logs.`,
+      nextStep: `Escalate to the BE team with log summary and time of occurrence.`
     };
   }
 
   return {
     owner: "UNKNOWN",
     confidence: "low",
-    headline: `Belum cukup bukti untuk routing otomatis dari input: "${issue}".`,
-    nextStep: `Sertakan status network (HAR) atau trace/request id agar bisa dikorelasikan.`
+    headline: `Not enough evidence to auto-route from input: "${issue}".`,
+    nextStep: `Include network status (HAR) or trace/request id for correlation.`
   };
 };

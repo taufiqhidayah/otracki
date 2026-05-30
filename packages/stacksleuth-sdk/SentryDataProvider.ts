@@ -56,8 +56,7 @@ const buildSentryQuery = (input: { context?: TriageContextInput }, service?: Ser
 
   const route = safeString(input.context?.route);
   if (route) {
-    const escaped = route.replace(/"/g, '\\"');
-    parts.push(`page.route:"${escaped}"`);
+    parts.push(`page.route:${route}`);
   }
 
   const level = asLevelTag(input.context?.level);
@@ -187,8 +186,87 @@ const parseNetworkFromBreadcrumbs = (entryData: unknown): NetworkRecord | null =
   };
 };
 
+const parseNetworkFromTags = (event: SentryEventListItem): NetworkRecord | null => {
+  const path = getTagValue(event, "request.path");
+  const statusRaw = getTagValue(event, "http.status");
+  const status = statusRaw ? Number.parseInt(statusRaw, 10) : Number.NaN;
+  if (!path || !Number.isFinite(status)) return null;
+
+  const methodMatch = (safeString(event.title) ?? safeString(event.message) ?? "").match(/\b(GET|POST|PUT|PATCH|DELETE)\b/);
+  const method = methodMatch?.[1] as NetworkRecord["method"] | undefined;
+
+  return {
+    timestamp: safeString(event.dateCreated) ?? new Date().toISOString(),
+    method: method ?? "GET",
+    url: path,
+    status
+  };
+};
+
+const EVENT_LIST_LIMIT = 8;
+
+const parseNetworkFromEvent = (event: SentryEventDetails): NetworkRecord | null => {
+  const breadcrumbs = findBreadcrumbsEntry(event);
+  if (breadcrumbs) {
+    const fromBreadcrumbs = parseNetworkFromBreadcrumbs(breadcrumbs.data);
+    if (fromBreadcrumbs) return fromBreadcrumbs;
+  }
+  return parseNetworkFromTags(event);
+};
+
+const eventToFeLog = (event: SentryEventDetails): FeLogEntry => {
+  const exception = findExceptionEntry(event);
+  const { value, stack } = exception ? parseExceptionStack(exception.data) : { value: undefined, stack: undefined };
+  const level = exception ? ("error" as const) : toLogLevel(getTagValue(event, "level"), "info");
+
+  const msgBase =
+    value ??
+    safeString(event.title) ??
+    safeString(event.message) ??
+    "Event found in Sentry, but no parseable exception details.";
+
+  const eventId = safeString(event.eventID) ?? safeString(event.id);
+  const routeTag = getTagValue(event, "page.route");
+  const msg = [msgBase, routeTag ? `route=${routeTag}` : undefined, `level=${level}`, `service=fe`]
+    .filter((v): v is string => Boolean(v))
+    .join(" ");
+
+  return {
+    timestamp: safeString(event.dateCreated) ?? new Date().toISOString(),
+    level,
+    message: eventId ? `${msg} (sentryEventId=${eventId})` : msg,
+    ...(stack ? { stack } : {})
+  };
+};
+
+const eventToBeLog = (event: SentryEventDetails): BeLogEntry => {
+  const exception = findExceptionEntry(event);
+  const { value } = exception ? parseExceptionStack(exception.data) : { value: undefined };
+  const level = exception ? ("error" as const) : toLogLevel(getTagValue(event, "level"), "info");
+
+  const msgBase =
+    value ??
+    safeString(event.title) ??
+    safeString(event.message) ??
+    "BE event found in Sentry, but no parseable details.";
+
+  const eventId = safeString(event.eventID) ?? safeString(event.id);
+  const requestId = getTagValue(event, "request_id") ?? getTagValue(event, "requestId");
+  const routeTag = getTagValue(event, "page.route");
+  const msg = [msgBase, routeTag ? `route=${routeTag}` : undefined, `level=${level}`, `service=be`]
+    .filter((v): v is string => Boolean(v))
+    .join(" ");
+
+  return {
+    timestamp: safeString(event.dateCreated) ?? new Date().toISOString(),
+    level,
+    message: eventId ? `${msg} (sentryEventId=${eventId})` : msg,
+    ...(requestId ? { requestId } : {})
+  };
+};
+
 export class SentryDataProvider implements DataProvider {
-  private readonly bestEventCache = new Map<string, Promise<SentryEventDetails | null>>();
+  private readonly rankedEventsCache = new Map<string, Promise<SentryEventDetails[]>>();
 
   constructor(
     private readonly config: {
@@ -203,11 +281,17 @@ export class SentryDataProvider implements DataProvider {
     return new Promise<void>((resolve) => setTimeout(resolve, ms));
   }
 
-  private async sentryFetchJson(path: string, params?: Record<string, string>) {
+  private async sentryFetchJson(path: string, params?: Record<string, string | string[]>) {
     const url = new URL(path, this.config.baseUrl);
     if (params) {
       for (const [k, v] of Object.entries(params)) {
-        url.searchParams.set(k, v);
+        if (Array.isArray(v)) {
+          for (const item of v) {
+            url.searchParams.append(k, item);
+          }
+        } else {
+          url.searchParams.set(k, v);
+        }
       }
     }
 
@@ -234,16 +318,50 @@ export class SentryDataProvider implements DataProvider {
     return resp.json();
   }
 
-  private async listProjectEvents(input: { issue: string; environment?: EnvironmentName; context?: TriageContextInput }) {
+  private buildOrgEventsQuery(input: { context?: TriageContextInput }, service?: ServiceTag) {
+    const parts = [`project:${this.config.projectSlug}`];
+    const tagQuery = buildSentryQuery(input, service);
+    if (tagQuery) parts.push(tagQuery);
+    return parts.join(" ");
+  }
+
+  private normalizeOrgEvent(row: Record<string, unknown>): SentryEventDetails {
+    const tags: Array<{ key: string; value: string }> = [];
+    for (const [key, value] of Object.entries(row)) {
+      if (key.startsWith("tags[") && key.endsWith("]") && typeof value === "string") {
+        tags.push({ key: key.slice(5, -1), value });
+      }
+    }
+
+    const eventId = safeString(row.id);
+    const dateCreated = safeString(row.timestamp);
+    const message = safeString(row.message);
+    const title = safeString(row.title);
+    return {
+      ...(eventId ? { eventID: eventId, id: eventId } : {}),
+      ...(dateCreated ? { dateCreated } : {}),
+      ...(message ? { message } : {}),
+      ...(title ? { title } : {}),
+      tags
+    };
+  }
+
+  private async listEvents(
+    input: { issue: string; environment?: EnvironmentName; context?: TriageContextInput },
+    service?: ServiceTag
+  ) {
     const statsPeriod = pickTimeWindow(input.context);
-    const query = buildSentryQuery(input);
-    const path = `/api/0/projects/${encodeURIComponent(this.config.orgSlug)}/${encodeURIComponent(this.config.projectSlug)}/events/`;
+    const query = this.buildOrgEventsQuery(input, service);
+    const path = `/api/0/organizations/${encodeURIComponent(this.config.orgSlug)}/events/`;
     const json = (await this.sentryFetchJson(path, {
       statsPeriod,
-      full: "1",
-      ...(query ? { query } : {})
-    })) as unknown;
-    return Array.isArray(json) ? (json as SentryEventDetails[]) : [];
+      query,
+      field: ["title", "message", "id", "timestamp", "tags[service]", "tags[page.route]", "tags[level]", "project"]
+    })) as { data?: unknown };
+    const rows = Array.isArray(json.data) ? json.data : [];
+    return rows
+      .map((row) => (row && typeof row === "object" ? this.normalizeOrgEvent(row as Record<string, unknown>) : null))
+      .filter((event): event is SentryEventDetails => event !== null && Boolean(safeString(event.id)));
   }
 
   private async getProjectEvent(eventId: string) {
@@ -251,9 +369,10 @@ export class SentryDataProvider implements DataProvider {
     return (await this.sentryFetchJson(path)) as SentryEventDetails;
   }
 
-  private async pickBestEvent(
+  private async pickRankedEvents(
     input: { issue: string; environment?: EnvironmentName; context?: TriageContextInput },
-    service?: ServiceTag
+    service?: ServiceTag,
+    limit = EVENT_LIST_LIMIT
   ) {
     const cacheKey = JSON.stringify({
       issue: input.issue,
@@ -263,10 +382,11 @@ export class SentryDataProvider implements DataProvider {
       debugId: input.context?.debugId ?? null,
       userHint: input.context?.userHint ?? null,
       timeWindowMinutes: input.context?.timeWindowMinutes ?? null,
-      level: input.context?.level ?? null
+      level: input.context?.level ?? null,
+      limit
     });
 
-    const existing = this.bestEventCache.get(cacheKey);
+    const existing = this.rankedEventsCache.get(cacheKey);
     if (existing) return existing;
 
     const task = (async () => {
@@ -274,53 +394,53 @@ export class SentryDataProvider implements DataProvider {
       if (debugId && isHexEventId(debugId)) {
         const byId = await this.getProjectEvent(debugId);
         const tagService = getTagValue(byId, "service");
-        if (!service || !tagService || tagService === service) return byId;
+        if (!service || !tagService || tagService === service) return [byId];
+        return [];
       }
 
-      const statsPeriod = pickTimeWindow(input.context);
-      const query = buildSentryQuery(input, service);
-      const path = `/api/0/projects/${encodeURIComponent(this.config.orgSlug)}/${encodeURIComponent(this.config.projectSlug)}/events/`;
-      const json = (await this.sentryFetchJson(path, {
-        statsPeriod,
-        full: "1",
-        ...(query ? { query } : {})
-      })) as unknown;
-      const events = Array.isArray(json) ? (json as SentryEventDetails[]) : [];
-      if (events.length === 0) return null;
+      const events = await this.listEvents(input, service);
+      if (events.length === 0) return [];
 
       const ranked = events
         .map((e) => ({ e, score: scoreEvent(e, input) }))
-        .sort((a, b) => b.score - a.score);
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
 
-      const best = ranked[0]?.e ?? null;
-      return best;
+      const details = await Promise.all(
+        ranked.map(async ({ e }) => {
+          const id = safeString(e.id) ?? safeString(e.eventID);
+          if (!id) return null;
+          return this.getProjectEvent(id);
+        })
+      );
+
+      return details.filter((event): event is SentryEventDetails => event !== null);
     })();
 
-    this.bestEventCache.set(cacheKey, task);
-    if (this.bestEventCache.size > 50) {
-      const firstKey = this.bestEventCache.keys().next().value as string | undefined;
-      if (firstKey) this.bestEventCache.delete(firstKey);
+    this.rankedEventsCache.set(cacheKey, task);
+    if (this.rankedEventsCache.size > 50) {
+      const firstKey = this.rankedEventsCache.keys().next().value as string | undefined;
+      if (firstKey) this.rankedEventsCache.delete(firstKey);
     }
 
     return task;
+  }
+
+  private async pickBestEvent(
+    input: { issue: string; environment?: EnvironmentName; context?: TriageContextInput },
+    service?: ServiceTag
+  ) {
+    const ranked = await this.pickRankedEvents(input, service, 1);
+    return ranked[0] ?? null;
   }
 
   async previewEvents(
     input: { issue: string; environment?: EnvironmentName; context?: TriageContextInput },
     options?: { limit?: number }
   ) {
-    const limit = typeof options?.limit === "number" && Number.isFinite(options.limit) ? Math.max(1, Math.min(10, Math.floor(options.limit))) : 3;
+    const limit = typeof options?.limit === "number" && Number.isFinite(options.limit) ? Math.max(1, Math.min(10, Math.floor(options.limit))) : 8;
     const service = input.context?.service === "fe" || input.context?.service === "be" ? input.context.service : undefined;
-
-    const statsPeriod = pickTimeWindow(input.context);
-    const query = buildSentryQuery(input, service);
-    const path = `/api/0/projects/${encodeURIComponent(this.config.orgSlug)}/${encodeURIComponent(this.config.projectSlug)}/events/`;
-    const json = (await this.sentryFetchJson(path, {
-      statsPeriod,
-      full: "1",
-      ...(query ? { query } : {})
-    })) as unknown;
-    const events = Array.isArray(json) ? (json as SentryEventDetails[]) : [];
+    const events = await this.listEvents(input, service);
 
     return events.slice(0, limit).map((e) => {
       const eventId = safeString(e.eventID) ?? safeString(e.id) ?? "";
@@ -341,90 +461,33 @@ export class SentryDataProvider implements DataProvider {
   }
 
   async getFeLogs(input: { issue: string; environment?: EnvironmentName; context?: TriageContextInput }): Promise<FeLogEntry[]> {
-    const best = await this.pickBestEvent(input, "fe");
-    if (!best) {
+    const events = await this.pickRankedEvents(input, "fe");
+    if (events.length === 0) {
       return [
         {
           timestamp: new Date().toISOString(),
           level: "warn",
-          message: "Tidak menemukan event FE di Sentry untuk time window yang dipilih. Coba perbesar time window atau isi Debug ID."
+          message: "No FE events found in Sentry for the selected time window. Try widening the time window or analyze a specific event from preview."
         }
       ];
     }
 
-    const exception = findExceptionEntry(best);
-    const { value, stack } = exception ? parseExceptionStack(exception.data) : { value: undefined, stack: undefined };
-    const level = exception ? ("error" as const) : toLogLevel(getTagValue(best, "level"), "info");
-
-    const msgBase =
-      value ??
-      safeString(best.title) ??
-      safeString(best.message) ??
-      "Event ditemukan di Sentry, tapi tidak ada detail exception yang bisa diparse.";
-
-    const eventId = safeString(best.eventID) ?? safeString(best.id);
-    const routeTag = getTagValue(best, "page.route");
-    const msg = [
-      msgBase,
-      routeTag ? `route=${routeTag}` : undefined,
-      `level=${level}`,
-      `service=fe`
-    ]
-      .filter((v): v is string => Boolean(v))
-      .join(" ");
-
-    return [
-      {
-        timestamp: safeString(best.dateCreated) ?? new Date().toISOString(),
-        level,
-        message: eventId ? `${msg} (sentryEventId=${eventId})` : msg,
-        ...(stack ? { stack } : {})
-      }
-    ];
+    return events.map(eventToFeLog);
   }
 
   async getBeLogs(input: { issue: string; environment?: EnvironmentName; context?: TriageContextInput }): Promise<BeLogEntry[]> {
-    const best = await this.pickBestEvent(input, "be");
-    if (!best) {
+    const events = await this.pickRankedEvents(input, "be");
+    if (events.length === 0) {
       return [
         {
           timestamp: new Date().toISOString(),
           level: "warn",
-          message: "Tidak menemukan event BE di Sentry untuk time window yang dipilih. Coba perbesar time window atau isi Debug ID."
+          message: "No BE events found in Sentry for the selected time window. Try widening the time window or analyze a specific event from preview."
         }
       ];
     }
 
-    const exception = findExceptionEntry(best);
-    const { value } = exception ? parseExceptionStack(exception.data) : { value: undefined };
-    const level = exception ? ("error" as const) : toLogLevel(getTagValue(best, "level"), "info");
-
-    const msgBase =
-      value ??
-      safeString(best.title) ??
-      safeString(best.message) ??
-      "Event BE ditemukan di Sentry, tapi tidak ada detail yang bisa diparse.";
-
-    const eventId = safeString(best.eventID) ?? safeString(best.id);
-    const requestId = getTagValue(best, "request_id") ?? getTagValue(best, "requestId");
-    const routeTag = getTagValue(best, "page.route");
-    const msg = [
-      msgBase,
-      routeTag ? `route=${routeTag}` : undefined,
-      `level=${level}`,
-      `service=be`
-    ]
-      .filter((v): v is string => Boolean(v))
-      .join(" ");
-
-    return [
-      {
-        timestamp: safeString(best.dateCreated) ?? new Date().toISOString(),
-        level,
-        message: eventId ? `${msg} (sentryEventId=${eventId})` : msg,
-        ...(requestId ? { requestId } : {})
-      }
-    ];
+    return events.map(eventToBeLog);
   }
 
   async getNetworkRecord(input: {
@@ -432,12 +495,29 @@ export class SentryDataProvider implements DataProvider {
     environment?: EnvironmentName;
     context?: TriageContextInput;
   }): Promise<NetworkRecord | null> {
-    const best = await this.pickBestEvent(input, "fe");
-    if (!best) return null;
+    const records = await this.getNetworkRecords(input);
+    return records[0] ?? null;
+  }
 
-    const breadcrumbs = findBreadcrumbsEntry(best);
-    if (!breadcrumbs) return null;
+  async getNetworkRecords(input: {
+    issue: string;
+    environment?: EnvironmentName;
+    context?: TriageContextInput;
+  }): Promise<NetworkRecord[]> {
+    const events = await this.pickRankedEvents(input, "fe");
+    const seen = new Set<string>();
+    const records: NetworkRecord[] = [];
 
-    return parseNetworkFromBreadcrumbs(breadcrumbs.data);
+    for (const event of events) {
+      const network = parseNetworkFromEvent(event);
+      if (!network) continue;
+
+      const key = `${network.method}:${network.url}:${network.status}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      records.push(network);
+    }
+
+    return records;
   }
 }

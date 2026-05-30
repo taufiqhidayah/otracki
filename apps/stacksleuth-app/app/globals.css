@@ -2,7 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  input,
+  textarea,
+  select {
+    @apply placeholder:text-ink-500;
+  }
+}
+
+@layer utilities {
+  .font-mono {
+    font-family: var(--font-mono), ui-monospace, monospace;
+  }
+}
+
 ::selection {
   background: rgba(132, 204, 22, 0.22);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

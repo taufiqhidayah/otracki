@@ -74,4 +74,9 @@ export interface DataProvider {
     environment?: EnvironmentName;
     context?: TriageContextInput;
   }): Promise<NetworkRecord | null>;
+  getNetworkRecords(input: {
+    issue: string;
+    environment?: EnvironmentName;
+    context?: TriageContextInput;
+  }): Promise<NetworkRecord[]>;
 }

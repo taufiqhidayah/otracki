@@ -7,6 +7,8 @@ interface TriageContextInput {
   debugId?: string;
   userHint?: string;
   timeWindowMinutes?: number;
+  service?: "fe" | "be" | "any";
+  level?: "debug" | "info" | "warn" | "error" | "any";
 }
 
 interface TriageRequestBody {
@@ -18,7 +20,7 @@ interface TriageRequestBody {
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as Partial<TriageRequestBody> | null;
   if (!body || typeof body.issue !== "string" || body.issue.trim().length === 0) {
-    return NextResponse.json({ error: "Field 'issue' wajib diisi." }, { status: 400 });
+    return NextResponse.json({ error: "Field 'issue' is required." }, { status: 400 });
   }
 
   const sdkBaseUrl = process.env.STACKSLEUTH_SDK_URL ?? "http://localhost:4000";
@@ -31,13 +33,17 @@ export async function POST(req: Request) {
         ...(contextFromBody.userHint ? { userHint: contextFromBody.userHint } : {}),
         ...(typeof contextFromBody.timeWindowMinutes === "number" && Number.isFinite(contextFromBody.timeWindowMinutes)
           ? { timeWindowMinutes: contextFromBody.timeWindowMinutes }
-          : {})
+          : {}),
+        ...(contextFromBody.service ? { service: contextFromBody.service } : {}),
+        ...(contextFromBody.level ? { level: contextFromBody.level } : {})
       }
     : undefined;
   const hasContext =
     Boolean(context?.route) ||
     Boolean(context?.debugId) ||
     Boolean(context?.userHint) ||
+    Boolean(context?.service) ||
+    Boolean(context?.level) ||
     typeof context?.timeWindowMinutes === "number";
 
   try {

@@ -60,7 +60,7 @@ export const createTriageServer = () => {
 
     if (!provider) {
       res.status(500).json({
-        error: "SENTRY_AUTH_TOKEN belum diset. Set env var ini untuk memakai Sentry (tanpa mock)."
+        error: "SENTRY_AUTH_TOKEN is not set. Set this env var to use Sentry."
       });
       return;
     }
@@ -111,7 +111,7 @@ export const createTriageServer = () => {
     if (!provider || !beCollector || !networkCollector || !analyzer) {
       res.setHeader("x-request-id", requestId);
       res.status(500).json({
-        error: "SENTRY_AUTH_TOKEN belum diset. Set env var ini untuk memakai Sentry (tanpa mock)."
+        error: "SENTRY_AUTH_TOKEN is not set. Set this env var to use Sentry."
       });
       return;
     }
@@ -119,7 +119,7 @@ export const createTriageServer = () => {
     const body = req.body as Partial<TriageRequest> | undefined;
     if (!body || typeof body.issue !== "string" || body.issue.trim().length === 0) {
       res.status(400).json({
-        error: "Field 'issue' wajib diisi dan harus berupa string."
+        error: "Field 'issue' is required and must be a string."
       });
       return;
     }
@@ -183,7 +183,7 @@ export const createTriageServer = () => {
 };
 
 export const startServer = (options?: { port?: number }) => {
-  const envPortRaw = process.env.PORT;
+  const envPortRaw = process.env.STACKSLEUTH_SDK_PORT ?? process.env.PORT;
   const envPort =
     typeof envPortRaw === "string" && envPortRaw.trim().length > 0 ? Number.parseInt(envPortRaw, 10) : Number.NaN;
   const port = options?.port ?? (Number.isFinite(envPort) ? envPort : 4000);
