@@ -1,0 +1,22 @@
+{
+  "name": "otracki",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "npm@10.0.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n sdk,app -c cyan,magenta \"npm run dev -w packages/stacksleuth-sdk\" \"npm run dev -w apps/stacksleuth-app\"",
+    "build": "npm run build -w packages/stacksleuth-sdk && npm run build -w apps/stacksleuth-app",
+    "start": "concurrently -n sdk,app -c cyan,magenta \"npm run start -w packages/stacksleuth-sdk\" \"npm run start -w apps/stacksleuth-app\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  }
+}
+
