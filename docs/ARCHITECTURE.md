@@ -2,7 +2,7 @@
 
 ## Overview
 
-StackSleuth is a two-tier system: a **Next.js web app** for QA input and display, and a **Node.js SDK** that fetches Sentry data and runs triage analysis.
+otracki is a two-tier system: a **Next.js web app** for QA input and display, and a **Node.js SDK** that fetches Sentry data and runs triage analysis.
 
 ```mermaid
 flowchart LR

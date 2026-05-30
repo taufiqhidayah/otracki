@@ -121,7 +121,7 @@ export const ResultCard = ({ result }: { result: TriageResult }) => {
 
   const textToCopy = useMemo(() => {
     const lines: string[] = [];
-    lines.push("=== StackSleuth Triage ===");
+    lines.push("=== otracki Triage ===");
     lines.push(`Owner: ${result.owner} (${config.team})`);
     lines.push(`Confidence: ${result.confidence}`);
     lines.push(`Headline: ${result.headline}`);

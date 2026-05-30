@@ -1,6 +1,6 @@
 # Setup Guide
 
-This guide covers local development and deployment configuration for StackSleuth.
+This guide covers local development and deployment configuration for otracki.
 
 ## Requirements
 
@@ -95,8 +95,8 @@ Starts both SDK and app via `concurrently`.
 | `SENTRY_ORG_SLUG` | No | `otracki` | Sentry organization slug |
 | `SENTRY_PROJECT_SLUG` | No | `javascript-nextjs` | Sentry project slug |
 | `SENTRY_BASE_URL` | No | `https://sentry.io` | Sentry API base URL (use for self-hosted) |
-| `STACKSLEUTH_SDK_PORT` | No | `4000` | HTTP port for the SDK server |
-| `PORT` | No | — | Fallback port if `STACKSLEUTH_SDK_PORT` is unset |
+| `STACKSLEUTH_SDK_PORT` | No | `4000` | HTTP port for the SDK server (do not use Railway `PORT` here) |
+| `PORT` | No | — | Used by Next.js only; SDK ignores this |
 
 Without `SENTRY_AUTH_TOKEN`, `/triage` and `/preview` return HTTP 500.
 

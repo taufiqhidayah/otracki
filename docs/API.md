@@ -1,6 +1,6 @@
 # API Reference
 
-StackSleuth exposes two layers: the **SDK REST API** (Express) and **Next.js proxy routes** that forward to the SDK.
+otracki exposes two layers: the **SDK REST API** (Express) and **Next.js proxy routes** that forward to the SDK.
 
 ## SDK API (port 4000)
 

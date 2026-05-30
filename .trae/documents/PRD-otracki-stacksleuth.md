@@ -1,5 +1,5 @@
 ## 1. Gambaran Produk
-otracki adalah monorepo yang menyediakan SDK “StackSleuth” untuk triage issue (FE/BE/infra) dan Web App untuk QA agar bisa input masalah lalu mendapatkan rekomendasi owner yang tepat beserta bukti pendukung.
+otracki adalah monorepo yang menyediakan SDK triage issue (FE/BE/infra) dan Web App untuk QA agar bisa input masalah lalu mendapatkan rekomendasi owner yang tepat beserta bukti pendukung.
 - Tujuan: mengurangi bolak-balik QA ↔ BE ↔ FE dengan analisis cepat berbasis log FE/BE + network response
 - Nilai: time-to-owner turun dari jam → menit, tiket lebih berkualitas (trace, request, error headline)
 

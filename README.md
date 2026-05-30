@@ -1,6 +1,6 @@
-# Otracki — StackSleuth Triage
+# otracki — Triage
 
-StackSleuth helps QA and engineers route bugs to the right owner (Frontend, Backend, or Infra) in minutes instead of hours. It pulls evidence from Sentry logs and network breadcrumbs, then returns a structured triage result ready to paste into a ticket.
+otracki helps QA and engineers route bugs to the right owner (Frontend, Backend, or Infra) in minutes instead of hours. It pulls evidence from Sentry logs and network breadcrumbs, then returns a structured triage result ready to paste into a ticket.
 
 ## Problem
 
@@ -10,14 +10,14 @@ When QA finds a UI bug (e.g. checkout button error), the issue often bounces bet
 2. QA goes back to Frontend → Frontend finds a nullish/handler error
 3. 2–3 hours lost in back-and-forth, with context lost along the way
 
-StackSleuth reduces this by correlating FE logs, BE logs, and network signals automatically.
+otracki reduces this by correlating FE logs, BE logs, and network signals automatically.
 
 ## What’s in this repo
 
 | Package | Path | Description |
 |---------|------|-------------|
-| **StackSleuth SDK** | `packages/stacksleuth-sdk` | Node.js + TypeScript REST API (Express). Fetches Sentry data, runs triage analysis. |
-| **StackSleuth App** | `apps/stacksleuth-app` | Next.js 14 web app for QA — input issue, preview events, analyze, copy result. |
+| **otracki SDK** | `packages/stacksleuth-sdk` | Node.js + TypeScript REST API (Express). Fetches Sentry data, runs triage analysis. |
+| **otracki App** | `apps/stacksleuth-app` | Next.js 14 web app for QA — input issue, preview events, analyze, copy result. |
 
 This is an **npm workspaces** monorepo.
 
@@ -102,7 +102,7 @@ Plain text like “checkout error” is usually not enough. Provide at least:
 
 ```
 ┌─────────────────────┐     POST /api/triage      ┌─────────────────────┐
-│  Next.js Web App    │ ────────────────────────► │  StackSleuth SDK    │
+│  Next.js Web App    │ ────────────────────────► │  otracki SDK        │
 │  (port 3000)        │     POST /api/preview     │  (port 4000)        │
 └─────────────────────┘                           └──────────┬──────────┘
                                                              │
@@ -147,7 +147,7 @@ Input quality (`poor` / `ok` / `good`) affects confidence. Add route, debug ID, 
 
 ## Sentry tags
 
-StackSleuth relies on these Sentry tags:
+otracki relies on these Sentry tags:
 
 - `service: fe | be` — separates frontend vs backend events
 - `page.route: "/..."` — page/route where the issue occurred

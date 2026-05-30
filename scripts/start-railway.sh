@@ -1,8 +1,10 @@
 #!/usr/bin/env sh
 set -e
 
-STACKSLEUTH_SDK_PORT="${STACKSLEUTH_SDK_PORT:-4000}"
-node packages/stacksleuth-sdk/dist/TriageServer.js &
+export STACKSLEUTH_SDK_PORT="${STACKSLEUTH_SDK_PORT:-4000}"
+export STACKSLEUTH_SDK_URL="${STACKSLEUTH_SDK_URL:-http://127.0.0.1:4000}"
+
+STACKSLEUTH_SDK_PORT="$STACKSLEUTH_SDK_PORT" node packages/stacksleuth-sdk/dist/TriageServer.js &
 SDK_PID=$!
 
 cleanup() {

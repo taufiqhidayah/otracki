@@ -183,14 +183,14 @@ export const createTriageServer = () => {
 };
 
 export const startServer = (options?: { port?: number }) => {
-  const envPortRaw = process.env.STACKSLEUTH_SDK_PORT ?? process.env.PORT;
+  const envPortRaw = process.env.STACKSLEUTH_SDK_PORT;
   const envPort =
     typeof envPortRaw === "string" && envPortRaw.trim().length > 0 ? Number.parseInt(envPortRaw, 10) : Number.NaN;
   const port = options?.port ?? (Number.isFinite(envPort) ? envPort : 4000);
   const app = createTriageServer();
 
   app.listen(port, "0.0.0.0", () => {
-    process.stdout.write(`StackSleuth SDK listening on http://0.0.0.0:${port}\n`);
+    process.stdout.write(`otracki SDK listening on http://0.0.0.0:${port}\n`);
   });
 };
 

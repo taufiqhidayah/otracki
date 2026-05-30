@@ -1,10 +1,10 @@
 ---
-title: "Otracki — StackSleuth Triage"
+title: "otracki — Triage"
 audience: "Hackathon / Internal QA-Eng"
 format: "Markdown slides"
 ---
 
-# Otracki — StackSleuth Triage
+# otracki — Triage
 
 - Tujuan: bantu QA nentuin owner issue (FE / BE / Infra) dalam menit, bukan jam
 - Output: ringkasan bukti + langkah lanjut yang bisa langsung dicopy ke tiket

@@ -15,7 +15,7 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "StackSleuth — Triage",
+  title: "otracki — Triage",
   description: "Triage FE/BE/Infra issues with evidence from logs and network."
 };
 
@@ -45,7 +45,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   Internal QA Tool
                 </div>
                 <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-                  StackSleuth <span className="text-ink-400">Triage</span>
+                  otracki <span className="text-ink-400">Triage</span>
                 </h1>
                 <p className="max-w-xl text-sm leading-relaxed text-ink-300">
                   Describe the bug, preview Sentry events, then get routing to FE / BE / Infra with
