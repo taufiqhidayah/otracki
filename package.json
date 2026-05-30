@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "concurrently -n sdk,app -c cyan,magenta \"npm run dev -w packages/stacksleuth-sdk\" \"npm run dev -w apps/stacksleuth-app\"",
     "build": "npm run build -w packages/stacksleuth-sdk && npm run build -w apps/stacksleuth-app",
-    "start": "concurrently -n sdk,app -c cyan,magenta \"STACKSLEUTH_SDK_PORT=4000 npm run start -w packages/stacksleuth-sdk\" \"npm run start -w apps/stacksleuth-app\""
+    "start": "sh scripts/start-railway.sh"
   },
   "dependencies": {
     "concurrently": "^9.2.0"

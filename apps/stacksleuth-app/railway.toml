@@ -7,5 +7,6 @@ restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
 
 [env]
-STACKSLEUTH_SDK_URL = "http://localhost:4000"
+STACKSLEUTH_SDK_URL = "http://127.0.0.1:4000"
 STACKSLEUTH_SDK_PORT = "4000"
+HOSTNAME = "0.0.0.0"

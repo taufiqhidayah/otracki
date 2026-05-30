@@ -189,8 +189,8 @@ export const startServer = (options?: { port?: number }) => {
   const port = options?.port ?? (Number.isFinite(envPort) ? envPort : 4000);
   const app = createTriageServer();
 
-  app.listen(port, () => {
-    process.stdout.write(`StackSleuth SDK listening on http://localhost:${port}\n`);
+  app.listen(port, "0.0.0.0", () => {
+    process.stdout.write(`StackSleuth SDK listening on http://0.0.0.0:${port}\n`);
   });
 };
 
