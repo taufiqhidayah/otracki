@@ -95,21 +95,21 @@ export class TriageAnalyzer {
 
     const evidence: EvidenceItem[] = [];
 
-    const feErr = findFirstError(feLogs);
-    if (feErr) {
-      const detail = feErr.level === "error" ? feLogs.find((l) => l.message === feErr.message)?.stack : undefined;
+    const fePicked = findFirstError(feLogs) ?? feLogs[0];
+    if (fePicked) {
+      const detail = fePicked.level === "error" ? feLogs.find((l) => l.message === fePicked.message)?.stack : undefined;
       evidence.push({
         source: "FE_LOG",
-        summary: feErr.message,
+        summary: fePicked.message,
         ...(detail ? { detail } : {})
       });
     }
 
-    const beErr = findFirstError(beLogs);
-    if (beErr) {
+    const bePicked = findFirstError(beLogs) ?? beLogs[0];
+    if (bePicked) {
       evidence.push({
         source: "BE_LOG",
-        summary: beErr.message
+        summary: bePicked.message
       });
     }
 
