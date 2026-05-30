@@ -42,7 +42,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 StackSleuth <span className="text-ink-300">Triage</span>
               </h1>
               <div className="text-xs text-ink-300" style={{ fontFamily: mono.style.fontFamily }}>
-                SDK: http://localhost:4000 • App: http://localhost:3000
+                Endpoint: /api/triage • Preview: /api/preview
               </div>
             </div>
             <p className="max-w-2xl text-sm leading-relaxed text-ink-200">
@@ -61,4 +61,3 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-

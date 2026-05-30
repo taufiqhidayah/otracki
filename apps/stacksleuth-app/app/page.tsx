@@ -6,6 +6,15 @@ import { useMemo, useState } from "react";
 import { ResultCard, type TriageResult } from "../components/ResultCard";
 
 type InputQuality = "poor" | "ok" | "good";
+type ServiceFilter = "any" | "fe" | "be";
+type LevelFilter = "any" | "debug" | "info" | "warn" | "error";
+
+type PreviewEvent = {
+  eventId: string;
+  title: string;
+  dateCreated: string;
+  tags: Partial<{ route: string; level: string; service: string }>;
+};
 
 const inputQualityBadge = (quality: InputQuality) => {
   if (quality === "good") return "bg-lime-400/15 text-lime-200 ring-lime-400/25";
@@ -38,13 +47,18 @@ const computeInputQuality = (input: { issue: string; route: string; debugId: str
 export default function Page() {
   const [issue, setIssue] = useState("checkout button error, response apa?");
   const [route, setRoute] = useState("/checkout");
-  const [timeWindowMinutes, setTimeWindowMinutes] = useState(5);
+  const [timeWindowMinutes, setTimeWindowMinutes] = useState(120);
   const [debugId, setDebugId] = useState("");
   const [userHint, setUserHint] = useState("");
+  const [service, setService] = useState<ServiceFilter>("any");
+  const [level, setLevel] = useState<LevelFilter>("any");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TriageResult | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewEvents, setPreviewEvents] = useState<PreviewEvent[] | null>(null);
 
   const issueOk = issue.trim().length > 0;
   const canSubmit = issueOk && !loading;
@@ -79,7 +93,9 @@ export default function Page() {
       ...(route.trim().length > 0 ? { route: route.trim() } : {}),
       ...(debugId.trim().length > 0 ? { debugId: debugId.trim() } : {}),
       ...(userHint.trim().length > 0 ? { userHint: userHint.trim() } : {}),
-      ...(timeWindowMinutes > 0 ? { timeWindowMinutes } : {})
+      ...(timeWindowMinutes > 0 ? { timeWindowMinutes } : {}),
+      ...(service !== "any" ? { service } : {}),
+      ...(level !== "any" ? { level } : {})
     };
 
     try {
@@ -107,6 +123,47 @@ export default function Page() {
       setResult(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const onPreview = async () => {
+    if (!issueOk || previewLoading) return;
+    setPreviewLoading(true);
+    setPreviewError(null);
+
+    const context = {
+      ...(route.trim().length > 0 ? { route: route.trim() } : {}),
+      ...(userHint.trim().length > 0 ? { userHint: userHint.trim() } : {}),
+      ...(timeWindowMinutes > 0 ? { timeWindowMinutes } : {}),
+      ...(service !== "any" ? { service } : {}),
+      ...(level !== "any" ? { level } : {})
+    };
+
+    try {
+      const resp = await fetch("/api/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          issue,
+          context,
+          limit: 3
+        })
+      });
+
+      const data = (await resp.json().catch(() => null)) as any;
+      if (!resp.ok) {
+        setPreviewError(typeof data?.error === "string" ? data.error : "Gagal ambil preview dari SDK.");
+        setPreviewEvents(null);
+        return;
+      }
+
+      const events = Array.isArray(data?.events) ? (data.events as PreviewEvent[]) : [];
+      setPreviewEvents(events);
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : "Terjadi error jaringan.");
+      setPreviewEvents(null);
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
@@ -189,7 +246,7 @@ export default function Page() {
               <div className="grid gap-2">
                 <label className="text-xs font-medium text-ink-200">Time window</label>
                 <div className="flex flex-wrap items-center gap-2">
-                  {[5, 15, 60, 120].map((m) => {
+                  {[5, 15, 60, 120, 240, 720].map((m) => {
                     const selected = m === timeWindowMinutes;
                     return (
                       <button
@@ -215,20 +272,20 @@ export default function Page() {
                         const raw = e.target.value;
                         const parsed = Number.parseInt(raw, 10);
                         if (!Number.isFinite(parsed)) return;
-                        const clamped = Math.max(1, Math.min(120, parsed));
+                        const clamped = Math.max(1, Math.min(720, parsed));
                         setTimeWindowMinutes(clamped);
                       }}
                       inputMode="numeric"
                       type="number"
                       min={1}
-                      max={120}
+                      max={720}
                       step={1}
                       className="w-16 bg-transparent text-right text-xs text-ink-100 outline-none"
                     />
                     <span className="text-xs text-ink-400">m</span>
                   </div>
                 </div>
-                <div className="text-[11px] text-ink-400">Bisa 1–120 menit. Kalau event belum ketemu, naikin window.</div>
+                <div className="text-[11px] text-ink-400">Default 120 menit. Bisa 1–720 menit.</div>
               </div>
 
               <div className="grid gap-2">
@@ -243,6 +300,44 @@ export default function Page() {
                   ].join(" ")}
                 />
                 <div className="text-[11px] text-ink-400">Kalau ada Debug ID, hasil biasanya paling presisi.</div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="grid gap-2">
+                <label className="text-xs font-medium text-ink-200">Service</label>
+                <select
+                  value={service}
+                  onChange={(e) => setService(e.target.value as ServiceFilter)}
+                  className={[
+                    "w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2.5 text-sm text-ink-100",
+                    "outline-none transition focus:border-lime-400/40 focus:ring-2 focus:ring-lime-400/20"
+                  ].join(" ")}
+                >
+                  <option value="any">Any</option>
+                  <option value="fe">FE</option>
+                  <option value="be">BE</option>
+                </select>
+                <div className="text-[11px] text-ink-400">Mengikuti tag Sentry: service=fe|be.</div>
+              </div>
+
+              <div className="grid gap-2">
+                <label className="text-xs font-medium text-ink-200">Level</label>
+                <select
+                  value={level}
+                  onChange={(e) => setLevel(e.target.value as LevelFilter)}
+                  className={[
+                    "w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2.5 text-sm text-ink-100",
+                    "outline-none transition focus:border-lime-400/40 focus:ring-2 focus:ring-lime-400/20"
+                  ].join(" ")}
+                >
+                  <option value="any">Any</option>
+                  <option value="debug">debug</option>
+                  <option value="info">info</option>
+                  <option value="warn">warn</option>
+                  <option value="error">error</option>
+                </select>
+                <div className="text-[11px] text-ink-400">Mengikuti tag Sentry: level=info|warn|error.</div>
               </div>
             </div>
 
@@ -267,6 +362,44 @@ export default function Page() {
             </div>
           ) : null}
 
+          {previewError ? (
+            <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-xs text-amber-100">
+              {previewError}
+            </div>
+          ) : null}
+
+          {previewEvents && previewEvents.length > 0 ? (
+            <div className="grid gap-2 rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-xs font-semibold text-white">Preview event (top 3)</div>
+                <div className="text-[11px] text-ink-400">Klik untuk isi Debug ID</div>
+              </div>
+              <div className="grid gap-2">
+                {previewEvents.map((ev) => {
+                  const meta = [
+                    ev.tags?.service ? `service=${ev.tags.service}` : undefined,
+                    ev.tags?.level ? `level=${ev.tags.level}` : undefined,
+                    ev.tags?.route ? `route=${ev.tags.route}` : undefined,
+                    ev.dateCreated ? new Date(ev.dateCreated).toLocaleString("id-ID") : undefined
+                  ]
+                    .filter((v): v is string => Boolean(v))
+                    .join(" • ");
+                  return (
+                    <button
+                      key={ev.eventId}
+                      type="button"
+                      onClick={() => setDebugId(ev.eventId)}
+                      className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-left text-xs text-ink-100 hover:bg-white/5"
+                    >
+                      <div className="font-medium text-white">{ev.title}</div>
+                      <div className="mt-1 text-[11px] text-ink-400">{meta}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-[11px] text-ink-400">
               Input wajib: <span className="text-ink-200">Deskripsi</span>. Rekomendasi:{" "}
@@ -274,18 +407,34 @@ export default function Page() {
               <span className="text-ink-200">Debug ID</span>.
             </div>
 
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              className={[
-                "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium",
-                "bg-lime-400/15 text-lime-200 ring-1 ring-lime-400/25 transition",
-                "hover:bg-lime-400/20 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
-              ].join(" ")}
-            >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-              Analyze
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onPreview}
+                disabled={!issueOk || previewLoading || loading}
+                className={[
+                  "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium",
+                  "bg-white/5 text-ink-200 ring-1 ring-white/10 transition",
+                  "hover:bg-white/10 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+                ].join(" ")}
+              >
+                {previewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Preview
+              </button>
+
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                className={[
+                  "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium",
+                  "bg-lime-400/15 text-lime-200 ring-1 ring-lime-400/25 transition",
+                  "hover:bg-lime-400/20 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+                ].join(" ")}
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                Analyze
+              </button>
+            </div>
           </div>
         </form>
       </section>

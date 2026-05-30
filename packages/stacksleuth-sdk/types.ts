@@ -9,6 +9,8 @@ export interface TriageContextInput {
   debugId?: string;
   userHint?: string;
   timeWindowMinutes?: number;
+  service?: "fe" | "be" | "any";
+  level?: "debug" | "info" | "warn" | "error" | "any";
 }
 
 export interface TriageRequest {

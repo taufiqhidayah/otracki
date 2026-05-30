@@ -36,10 +36,18 @@ type ServiceTag = "fe" | "be";
 const getTagValue = (event: SentryEventListItem, key: string) =>
   safeString(event.tags?.find((t) => t.key === key)?.value);
 
+type LevelTag = "debug" | "info" | "warn" | "error";
+
 const toLogLevel = (value: string | undefined, fallback: LogLevel): LogLevel => {
   const v = value?.toLowerCase();
   if (v === "debug" || v === "info" || v === "warn" || v === "error") return v;
   return fallback;
+};
+
+const asLevelTag = (value: unknown): LevelTag | undefined => {
+  const v = safeString(value)?.toLowerCase();
+  if (v === "debug" || v === "info" || v === "warn" || v === "error") return v;
+  return undefined;
 };
 
 const buildSentryQuery = (input: { context?: TriageContextInput }, service?: ServiceTag) => {
@@ -52,12 +60,15 @@ const buildSentryQuery = (input: { context?: TriageContextInput }, service?: Ser
     parts.push(`page.route:"${escaped}"`);
   }
 
+  const level = asLevelTag(input.context?.level);
+  if (level) parts.push(`level:${level}`);
+
   return parts.length > 0 ? parts.join(" ") : undefined;
 };
 
 const pickTimeWindow = (context?: TriageContextInput) => {
   const minutes = typeof context?.timeWindowMinutes === "number" && Number.isFinite(context.timeWindowMinutes) ? context.timeWindowMinutes : 5;
-  const clamped = Math.max(1, Math.min(120, Math.floor(minutes)));
+  const clamped = Math.max(1, Math.min(720, Math.floor(minutes)));
   return `${clamped}m`;
 };
 
@@ -251,7 +262,8 @@ export class SentryDataProvider implements DataProvider {
       route: input.context?.route ?? null,
       debugId: input.context?.debugId ?? null,
       userHint: input.context?.userHint ?? null,
-      timeWindowMinutes: input.context?.timeWindowMinutes ?? null
+      timeWindowMinutes: input.context?.timeWindowMinutes ?? null,
+      level: input.context?.level ?? null
     });
 
     const existing = this.bestEventCache.get(cacheKey);
@@ -291,6 +303,41 @@ export class SentryDataProvider implements DataProvider {
     }
 
     return task;
+  }
+
+  async previewEvents(
+    input: { issue: string; environment?: EnvironmentName; context?: TriageContextInput },
+    options?: { limit?: number }
+  ) {
+    const limit = typeof options?.limit === "number" && Number.isFinite(options.limit) ? Math.max(1, Math.min(10, Math.floor(options.limit))) : 3;
+    const service = input.context?.service === "fe" || input.context?.service === "be" ? input.context.service : undefined;
+
+    const statsPeriod = pickTimeWindow(input.context);
+    const query = buildSentryQuery(input, service);
+    const path = `/api/0/projects/${encodeURIComponent(this.config.orgSlug)}/${encodeURIComponent(this.config.projectSlug)}/events/`;
+    const json = (await this.sentryFetchJson(path, {
+      statsPeriod,
+      full: "1",
+      ...(query ? { query } : {})
+    })) as unknown;
+    const events = Array.isArray(json) ? (json as SentryEventDetails[]) : [];
+
+    return events.slice(0, limit).map((e) => {
+      const eventId = safeString(e.eventID) ?? safeString(e.id) ?? "";
+      const route = getTagValue(e, "page.route");
+      const level = getTagValue(e, "level");
+      const svc = getTagValue(e, "service");
+      return {
+        eventId,
+        title: safeString(e.title) ?? safeString(e.message) ?? "Untitled",
+        dateCreated: safeString(e.dateCreated) ?? "",
+        tags: {
+          ...(route ? { route } : {}),
+          ...(level ? { level } : {}),
+          ...(svc ? { service: svc } : {})
+        }
+      };
+    });
   }
 
   async getFeLogs(input: { issue: string; environment?: EnvironmentName; context?: TriageContextInput }): Promise<FeLogEntry[]> {

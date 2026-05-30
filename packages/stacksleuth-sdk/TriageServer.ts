@@ -54,6 +54,57 @@ export const createTriageServer = () => {
     res.status(200).json({ ok: true });
   });
 
+  app.post("/preview", async (req, res) => {
+    const requestId = randomUUID();
+    res.setHeader("x-request-id", requestId);
+
+    if (!provider) {
+      res.status(500).json({
+        error: "SENTRY_AUTH_TOKEN belum diset. Set env var ini untuk memakai Sentry (tanpa mock)."
+      });
+      return;
+    }
+
+    const body = req.body as Partial<{ issue: string; context: TriageContextInput; limit: number }> | undefined;
+    const issue = typeof body?.issue === "string" && body.issue.trim().length > 0 ? body.issue.trim() : "preview";
+    const contextFromBody = body?.context && typeof body.context === "object" ? (body.context as TriageContextInput) : {};
+    const context: TriageContextInput = {
+      ...(contextFromBody.route ? { route: contextFromBody.route } : {}),
+      ...(contextFromBody.debugId ? { debugId: contextFromBody.debugId } : {}),
+      ...(contextFromBody.userHint ? { userHint: contextFromBody.userHint } : {}),
+      ...(typeof contextFromBody.timeWindowMinutes === "number"
+        ? { timeWindowMinutes: contextFromBody.timeWindowMinutes }
+        : {}),
+      ...(contextFromBody.service ? { service: contextFromBody.service } : {}),
+      ...(contextFromBody.level ? { level: contextFromBody.level } : {})
+    };
+    const hasContext =
+      Boolean(context.route) ||
+      Boolean(context.debugId) ||
+      Boolean(context.userHint) ||
+      Boolean(context.service) ||
+      Boolean(context.level) ||
+      typeof context.timeWindowMinutes === "number";
+
+    try {
+      const events = await provider.previewEvents(
+        {
+          issue,
+          ...(hasContext ? { context } : {})
+        },
+        {
+          ...(typeof body?.limit === "number" ? { limit: body.limit } : {})
+        }
+      );
+
+      res.status(200).json({ events });
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : "Unknown error"
+      });
+    }
+  });
+
   app.post("/triage", async (req, res) => {
     const requestId = randomUUID();
 
@@ -86,12 +137,16 @@ export const createTriageServer = () => {
         ...(contextFromBody.userHint ? { userHint: contextFromBody.userHint } : {}),
         ...(typeof contextFromBody.timeWindowMinutes === "number"
           ? { timeWindowMinutes: contextFromBody.timeWindowMinutes }
-          : {})
+          : {}),
+        ...(contextFromBody.service ? { service: contextFromBody.service } : {}),
+        ...(contextFromBody.level ? { level: contextFromBody.level } : {})
       };
       const hasContext =
         Boolean(context.route) ||
         Boolean(context.debugId) ||
         Boolean(context.userHint) ||
+        Boolean(context.service) ||
+        Boolean(context.level) ||
         typeof context.timeWindowMinutes === "number";
 
       const collectInputWithContext = {
