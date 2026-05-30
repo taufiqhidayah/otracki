@@ -175,7 +175,7 @@ export class SentryDataProvider implements DataProvider {
       fetch(url.toString(), {
         method: "GET",
         headers: {
-          authorization: `Bearer ${this.config.authToken}`,
+          Authorization: `Bearer ${this.config.authToken}`,
           "content-type": "application/json"
         }
       });

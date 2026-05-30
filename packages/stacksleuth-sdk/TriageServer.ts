@@ -1,12 +1,35 @@
 import cors from "cors";
+import dotenv from "dotenv";
 import express from "express";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { BeLogCollector } from "./BeLogCollector.js";
 import { NetworkCollector } from "./NetworkCollector.js";
 import { SentryDataProvider } from "./SentryDataProvider.js";
 import { TriageAnalyzer } from "./TriageAnalyzer.js";
 import type { TriageContextInput, TriageRequest, TriageResult } from "./types.js";
+
+const loadEnv = () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(process.cwd(), ".env"),
+    path.resolve(process.cwd(), "packages", "stacksleuth-sdk", ".env"),
+    path.resolve(here, ".env"),
+    path.resolve(here, "..", ".env")
+  ];
+
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      dotenv.config({ path: p });
+      break;
+    }
+  }
+};
+
+loadEnv();
 
 export const createTriageServer = () => {
   const app = express();
